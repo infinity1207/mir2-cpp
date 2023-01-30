@@ -1,6 +1,9 @@
 #include "WilHelper.h"
 #include <fstream>
 #include "gzip/decompress.hpp"
+#include "spdlog/spdlog.h"
+
+extern std::shared_ptr<spdlog::logger> logger;
 
 WilHelper::WilHelper(std::string wix_filename, std::string wil_filename) :
     wix_filename_(wix_filename),
@@ -168,8 +171,11 @@ void MLibrary::GetImageInfo(int index, int& width, int& height, int& x, int& y)
 
 std::shared_ptr<sf::Image> MLibrary::GetSfImage(int index)
 {
+    sf::Clock clock;
     auto it = this->sf_images_.find(index);
     if (it == this->sf_images_.end()) {
+
+        clock.restart();
         std::ifstream fin(this->filename_, std::ios::in | std::ios::binary);
         auto pos = this->image_indexs_[index];
         fin.seekg(pos);
@@ -191,8 +197,15 @@ std::shared_ptr<sf::Image> MLibrary::GetSfImage(int index)
             pixels[i * 4 + 0] = pixels[i * 4 + 2];
             pixels[i * 4 + 2] = temp;
         }
+
+        sf::Time elapsed1 = clock.getElapsedTime();
+        logger->info("\t从Lib文件中解析图像数据耗时: {0}微秒", elapsed1.asMicroseconds());
+
+        clock.restart();
         std::shared_ptr<sf::Image> sf_image = std::make_shared<sf::Image>();
         sf_image->create(image.Width, image.Height, pixels.get());
+        sf::Time elapsed2 = clock.getElapsedTime();
+        logger->info("\t创建sf::Image对象耗时: {0}微秒", elapsed2.asMicroseconds());
 
         sf_images_[index] = sf_image;
     }

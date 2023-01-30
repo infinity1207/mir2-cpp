@@ -10,6 +10,11 @@
 #include "WilHelper.h"
 #include <fmt/format.h>
 #include <math.h>
+#include "spdlog/spdlog.h"
+#include "spdlog/async.h"
+#include "spdlog/sinks/basic_file_sink.h"
+#include "spdlog/sinks/rotating_file_sink.h"
+#include "spdlog/sinks/stdout_color_sinks.h"
 
 #pragma pack(1)
 struct MapHeader
@@ -58,6 +63,8 @@ struct CellInfo
 };
 #pragma pack()
 
+std::shared_ptr<spdlog::logger> logger;
+
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
                      _In_ LPWSTR    lpCmdLine,
@@ -65,6 +72,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
     sf::RenderWindow window(sf::VideoMode(1920, 1080), "SFML works!");
     window.setFramerateLimit(60);
+
+    auto wSize = window.getSize();
+    sf::View view(sf::FloatRect(0, 0, wSize.x, wSize.y));
+    window.setView(view);
+
+    logger = spdlog::rotating_logger_mt("file_logger", "d:\\mir2.log", 1048576 * 10, 9);
+    logger->set_pattern("%Y-%m-%d %T,%f - [%t] - %l - %v");
 
     int CellWidth = 48;
     int CellHeight = 32;
@@ -111,6 +125,24 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     int range_h = 50;
     int drawY, drawX;
 
+    std::vector< std::vector<std::shared_ptr<sf::Texture>> > back_textures;
+    for (int x = 0; x < range_w; x++) {
+        if (x % 2 == 1) {
+            continue;
+        }
+        std::vector<std::shared_ptr<sf::Texture>> col;
+        for (int y = 0; y < range_h; y++) {
+            if (y % 2 == 1) {
+                continue;
+            }
+            std::shared_ptr<sf::Texture> texture = std::make_shared<sf::Texture>();
+            texture->create(CellWidth * 2, CellHeight * 2);
+            col.push_back(texture);
+        }
+        back_textures.push_back(col);
+    }
+
+    sf::Clock clock;
     while (window.isOpen())
     {
         sf::Event event;
@@ -141,6 +173,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
         window.clear();
 
+        logger->info("==== 开始绘制 ====");
+        clock.restart();
         for (int y = movment_y; y < movment_y + range_h; y++) {
             if (y % 2 == 1) {
                 continue;
@@ -160,15 +194,20 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                 int width, height, offset_x, offset_y;
                 lib->GetImageInfo(img_idx, width, height, offset_x, offset_y);
                 auto sf_image = lib->GetSfImage(img_idx);
-                sf::Texture texture;
-                texture.loadFromImage(*(sf_image.get()));
+
+                auto texture = back_textures[(x - movment_x) / 2][(y - movment_y) / 2];
+                texture->update(*(sf_image.get()));
+
                 sf::RectangleShape rect_shape(sf::Vector2f(static_cast<float>(width), static_cast<float>(height)));
                 rect_shape.setPosition(sf::Vector2f(static_cast<float>(drawX), static_cast<float>(drawY)));
-                rect_shape.setTexture(&texture);
+                rect_shape.setTexture(texture.get());
                 window.draw(rect_shape);
             }
         }
+        sf::Time elapsed1 = clock.getElapsedTime();
+        logger->info("绘制地图背景层耗时: {0}微秒", elapsed1.asMicroseconds());
 
+        clock.restart();
         for (int y = movment_y; y < movment_y + range_h; y++) {
             drawY = (y - movment_y) * CellHeight;
             for (int x = movment_x; x < movment_x + range_w; x++) {
@@ -192,8 +231,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                 window.draw(rect_shape);
             }
         }
+        sf::Time elapsed2 = clock.getElapsedTime();
+        logger->info("绘制地图中间层耗时: {0}微秒", elapsed2.asMicroseconds());
 
         // Draw Font
+        clock.restart();
         for (int y = movment_y; y < movment_y + range_h; y++) {
             drawY = (y - movment_y) * CellHeight;
             for (int x = movment_x; x < movment_x + range_w; x++) {
@@ -227,8 +269,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                 window.draw(rect_shape);
             }
         }
+        sf::Time elapsed3 = clock.getElapsedTime();
+        logger->info("绘制地图前景层耗时: {0}微秒", elapsed3.asMicroseconds());
 
         // Draw Objects
+        clock.restart();
         for (int y = movment_y; y < movment_y + range_h; y++) {
             drawY = (y - movment_y) * CellHeight;
             for (int x = movment_x; x < movment_x + range_w; x++) {
@@ -300,6 +345,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                 window.draw(rect, states);
             }
         }
+        sf::Time elapsed4 = clock.getElapsedTime();
+        logger->info("绘制地图物体耗时: {0}微秒", elapsed4.asMicroseconds());
+
+        logger->info("==== 绘制结束 ====\n");
 
         AnimationCount++;
 
